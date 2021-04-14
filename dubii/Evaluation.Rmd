@@ -1,0 +1,263 @@
+---
+title: "Examen final Modules 4 et 5"
+author: "Natalia Pinzón Restrepo"
+subtitle: "DUBii 2021"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+bibliography: resources/biblio.bib 
+csl: resources/biomed-central.csl
+output:
+    html_document:
+      css: [css/style.css, 'https://use.fontawesome.com/releases/v5.0.9/css/all.css']
+      self_contained: true
+      number_sections: false
+      code_folding: "hide"
+      toc: true
+      toc_depth: 3
+      toc_float: true
+      includes:
+        after_body: resources/footer.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval=FALSE, echo =TRUE, cache = FALSE, message = FALSE, warning = FALSE, cache.lazy = FALSE,
+                      fig.height = 3.5, fig.width = 10.5)
+```
+
+# Consignes {-}
+
+Complétez ce document en remplissant les chunks vides pour écrire le code qui vous a permis de répondre à la question. Les réponses attendant un résultat chiffré ou une explication devront être insérés entre le balises html `code`. Par exemple pour répondre à la question suivante :
+
+    La bioinfo c'est : <code>MERVEILLEUX</code>.
+    
+N'hésitez pas à commenter votre code, enrichier le rapport en y insérant des résultats ou des graphiques/images pour expliquer votre démarche. N'oubliez pas les **bonnes pratiques** pour une recherche **reproductible** !
+Nous souhaitons à minima que l'analyse soit reproductible sur le cluster de l'IFB.
+
+# Introduction {-}
+
+Vous allez travailler sur des données de reséquençage d'un génome bactérien : _Bacillus subtilis_. Les données sont issues de cet article :
+
+* [Complete Genome Sequences of 13 Bacillus subtilis Soil Isolates for Studying Secondary Metabolite Diversity](https://mra.asm.org/content/9/2/e01406-19)
+
+# Analyses
+
+## Organisation de votre espace de travail
+
+```{bash}
+cd ~
+mkdir -p ~/EvaluationM4M5/FASTQ
+mkdir -p ~/EvaluationM4M5/QC
+mkdir -p ~/EvaluationM4M5/MAPPING
+mkdir -p ~/EvaluationM4M5/CLEANING
+mkdir -p ~/EvaluationM4M5/Plots
+tree ~/EvaluationM4M5
+
+```
+
+## Téléchargement des données brutes
+
+Récupérez les fichiers FASTQ issus du run **SRR10390685** grâce à l'outil <strong class="tool">sra-tools</strong> @sratoolkit
+
+### Description des données
+
+Le run **SRR10390685** fait partie du projet **PRJNA587401** renseigné dans l'article, qui est composé de plusieurs expériences. Ce run fait partie de l'expérience **SRX7091090** qui correspond au séquençage de la souche **Bacillus subtilis lib strain P5_B1** strain	P5_B1. On a quelques informations sur cette souche:
+- collection date:	2017-08
+- depth:	10 cm
+- elevation:	not collected
+- broad-scale environmental context:	soil in grass field, non-agriculture site
+- local-scale environmental context:	not applicable
+- environmental medium:	not applicable
+- geographic location:	Denmark:Dyrehave
+- isolation and growth condition:	spore selection at 80C for 20 min, plating on Difco Nutrient broth agar
+- latitude and longitude:	55.788800 N 12.558300 E
+- number of replicons:	1
+
+
+```{bash}
+module load sra-tools/2.10.3
+
+srun --cpus-per-task=6 fasterq-dump --split-files -p SRR10390685 -O FASTQ
+cd ~/EvaluationM4M5/FASTQ
+srun gzip *.fastq
+```
+
+Combien de reads sont présents dans les fichiers R1 et R2 ?
+
+```{bash}
+module load seqkit/0.14.0
+srun seqkit stats --threads 1 *.fastq.gz
+```
+
+Les fichiers FASTQ contiennent <code>7 066 055</code> reads.
+
+Téléchargez le génome de référence de la souche ASM904v1 de _Bacillus subtilis_ disponible à [cette adresse](https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/009/045/GCF_000009045.1_ASM904v1/GCF_000009045.1_ASM904v1_genomic.fna.gz)
+
+```{bash}
+mkdir -p ~/EvaluationM4M5/GENOMES
+cd ~/EvaluationM4M5/GENOMES
+wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/009/045/GCF_000009045.1_ASM904v1/GCF_000009045.1_ASM904v1_genomic.fna.gz
+```
+
+Quelle est la taille de ce génome ?
+
+```{bash}
+srun seqkit stats --threads 1 GCF_000009045.1_ASM904v1_genomic.fna.gz
+```
+
+La taille de ce génome est de <code>4 215 606</code> paires de bases.
+
+Téléchargez l'annotation de la souche ASM904v1 de _Bacillus subtilis_ disponible à [cette adresse](https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/009/045/GCF_000009045.1_ASM904v1/GCF_000009045.1_ASM904v1_genomic.gff.gz)
+
+```{bash}
+mkdir -p ~/EvaluationM4M5/ANNOTATIONS
+cd  ~/EvaluationM4M5/ANNOTATIONS
+wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/009/045/GCF_000009045.1_ASM904v1/GCF_000009045.1_ASM904v1_genomic.gff.gz
+```
+
+Combien de gènes sont connus pour ce génome ?
+
+```{bash}
+zcat GCF_000009045.1_ASM904v1_genomic.gff.gz | grep -P '\tgene\t' | wc -l
+```
+
+<code>4448</code> gènes sont recensés dans le fichier d'annotation.
+
+## Contrôle qualité
+
+Lancez l'outil <strong class="tool">fastqc</strong> @fastqc dédié à l'analyse de la qualité des bases issues d'un séquençage haut-débit
+
+```{bash}
+cd  ~/EvaluationM4M5/
+module load fastqc/0.11.9
+srun --cpus-per-task 8 fastqc FASTQ/SRR10390685_1.fastq.gz -o QC/ -t 8
+srun --cpus-per-task 8 fastqc FASTQ/SRR10390685_2.fastq.gz -o QC/ -t 8
+```
+
+La qualité des bases vous paraît-elle satisfaisante ? Pourquoi ?
+
+- [X] Oui
+- [ ] Non
+
+
+car <code> on peut voir que la qualité par base de la grande majorité de reads reste haute jusqu'à la fin. Tous les autres graphiques sont en accord avec ce qu'on peut s'attendre pour du séquençage Illumina. Par contre, il y a une qéquence d'une suite de "N" qui dénote un problème, mais ça ne représente que 0,12% des redas, donc je pense qu'on peut le négliger. </code>
+
+Lien vers le [rapport MulitQC]()
+
+Est-ce que les reads déposés ont subi une étape de nettoyage avant d'être déposés ? Pourquoi ?
+
+- [X] Oui
+- [ ] Non
+
+car <code>Ils ne contiennent pas d'adaptateurs et leur taille est variable</code>
+
+Quelle est la profondeur de séquençage (calculée par rapport à la taille du génome de référence) ?
+
+```{bash}
+python #j'utilise python comme calculatrice
+7066055/4215606
+```
+
+La profondeur de séquençage est de : <code>1,67</code> X.
+
+## Nettoyage des reads
+
+Vous voulez maintenant nettoyer un peu vos lectures. Choisissez les paramètres de <strong class="tool">fastp</strong> @fastp qui vous semblent adéquats et justifiez-les.
+
+```{bash}
+module load fastp/0.20.0
+srun --cpus-per-task 8 fastp --in1 FASTQ/SRR10390685_1.fastq.gz --in2 FASTQ/SRR10390685_2.fastq.gz --out1 CLEANING/SRR10390685_1.cleaned_filtered.fastq.gz --out2 CLEANING/SRR10390685_2.cleaned_filtered.fastq.gz --html CLEANING/fastp.html --thread 8 -A --cut_mean_quality 30 --cut_window_size 8 --length_required 100 --cut_tail --json CLEANING/fastp.json
+srun seqkit stats --threads 1 CLEANING/*.fastq.gz
+```
+
+Les paramètres suivants ont été choisis : 
+
+
+|Parametre | Valeur | Explication |
+|----------|--------|-------------|
+| -A |  | inactivation du trimmimng d'adaptateurs car déjà effectué |
+| --cut_window_size   | 8 | Taille de la fenêtre d'étude, ici le read est coupé en 8 nucléotides et sa qualité analysée |
+| --cut_mean_quality | 30 | Sur une fenetre donnée (ici 8) la qualité moyenne doit être supérieure à 30 |
+| --length_required | 100 | Les reads de moins de nucléotides seront écartés
+
+Ces paramètres ont permis de conserver <code>6,777,063</code> reads pairés, soit une perte de <code>4,08</code>% des reads bruts.
+
+## Alignement des reads sur le génome de référence
+
+Maintenant, vous allez aligner ces reads nettoyés sur le génome de référence à l'aide de <strong class="tool">bwa</strong> @bwa et <strong class="tool">samtools</strong> @samtools.
+
+```{bash}
+cd ~/EvaluationM4M5/
+module load bwa/0.7.17
+bwa index GENOMES/GCF_000009045.1_ASM904v1_genomic.fna.gz 
+srun --cpus-per-task=32 bwa mem GENOMES/GCF_000009045.1_ASM904v1_genomic.fna.gz CLEANING/SRR10390685_1.cleaned_filtered.fastq.gz CLEANING/SRR10390685_2.cleaned_filtered.fastq.gz -t 32 > MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sam
+```
+
+Combien de reads ne sont pas mappés ?
+
+```{bash}
+module load samtools/1.5
+srun --cpus-per-task=8 samtools view --threads 8 MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sam -b > MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.bam
+srun samtools sort MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.bam -o MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sort.bam
+srun samtools index MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sort.bam
+
+srun samtools idxstats MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sort.bam > MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sort.bam.idxstats
+srun samtools flagstat MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sort.bam > MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sort.bam.flagstat
+# mapped read-segments and # unmapped read segment from idxstats file:
+#12826865 #40268
+#il n'y a pas de reads dans l'output de flagstat qui soit marqué comme "QC-failed"
+```
+
+```{bash}
+#remove useless files
+rm MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sam
+rm MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.bam
+```
+
+<code>40268</code> reads ne sont pas mappés.
+
+## Croisement de données
+
+Calculez le nombre de reads qui chevauchent avec au moins 50% de leur longueur le gène _trmNF_ grâce à l'outil <strong class="tool">bedtools</strong> @bedtools:
+
+```{bash}
+module load bedtools/2.29.2
+
+#récupération des annotations du gène trmNF:
+zcat ANNOTATIONS/GCF_000009045.1_ASM904v1_genomic.gff.gz | grep -P '\tgene\t' | grep "trmNF" > ANNOTATIONS/trmNF_gene.gff3
+#intersection des reads qui chevauchent avec au moins 50% de leur longueur le gène _trmNF_
+srun bedtools intersect -a MAPPING/SRR10390685_on_GCF_000009045.1_ASM904v1_genomic.sort.bam -b ANNOTATIONS/trmNF_gene.gff3 -f 0.50 > MAPPING/SRR10390685_on_trmNF_gene.bam
+
+#comptage des reads qui cehvauchent le gène
+srun bedtools bamtobed -i MAPPING/SRR10390685_on_trnNF_gene.bam -split > MAPPING/SRR10390685_on_trnNF_gene.bed
+wc -l MAPPING/SRR10390685_on_trnNF_gene.bed
+```
+
+<code> 2801 </code> reads chevauchent le gène d'intérêt.
+
+
+## Visualisation
+
+```{bash}
+#Creation d'es d'un .bam.bai pour IGV
+module load samtools/1.5
+
+srun samtools index MAPPING/SRR10390685_on_trmNF_gene.bam
+
+#srun sort -k1,1 MAPPING/SRR10390685_on_trnNF_gene.bed > MAPPING/SRR10390685_on_trnNF_gene_sorted.bed
+#srun bedtools genomecov -ibam MAPPING/SRR10390685_on_trnNF_gene_sorted.bed -bga -split > MAPPING/SRR10390685_on_trnNF_gene.bedgraph
+```
+
+
+Utilisez <strong class="tool">IGV</strong> @igv sous [sa version en ligne](https://igv.org/app/) pour visualiser les alignements sur le gène. Faites une capture d'écran du gène entier.
+![Reads qui chevauchent à 50% le gène trmNF](/shared/home/npinzonrestrepo/EvaluationM4M5/Plots/Capture_web_14-4-2021_111613_igv.org.jpeg)
+
+```{bash}
+module load multiqc/1.9
+
+multiqc -d . -o QC
+```
+
+
+
+
+
+# References
