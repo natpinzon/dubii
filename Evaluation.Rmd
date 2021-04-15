@@ -140,7 +140,7 @@ La qualité des bases vous paraît-elle satisfaisante ? Pourquoi ?
 
 car <code> on peut voir que la qualité par base de la grande majorité de reads reste haute jusqu'à la fin. Tous les autres graphiques sont en accord avec ce qu'on peut s'attendre pour du séquençage Illumina. Par contre, il y a une qéquence d'une suite de "N" qui dénote un problème, mais ça ne représente que 0,12% des redas, donc je pense qu'on peut le négliger. </code>
 
-Lien vers le [rapport MulitQC]()
+Lien vers le [rapport MulitQC](https://natpinzon.github.io/dubii/multiqc_report.html)
 
 Est-ce que les reads déposés ont subi une étape de nettoyage avant d'être déposés ? Pourquoi ?
 
